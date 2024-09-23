@@ -767,7 +767,7 @@ graph LR
 
 </div>
 
-最初の非同期処理を終えた後`AsyncData`か`AsyncError`になってから、`FutureProvider`を初期化した時に`isLoading`が`true`になり、再度非同期処理を行います。初期化には全てのプロバイダーに対して使える`invalidate()`を使用します。\
+最初の非同期処理を終えた後`AsyncData`か`AsyncError`になってから、`FutureProvider`を初期化した時に`isLoading`が`true`になり、再度非同期処理を行います。初期化は`invalidate()`を使用します。\
 これはプロバイダーの保持している状態をリセットするために使用します。
 
 ```dart
@@ -924,8 +924,8 @@ ref.read(sampleProvider.notifier).increment();
 ### プロバイダーの種類：AsyncNotifierProvider
 
 `state`を自由に変更できてしまうため、変更処理には気を付けないといけません。\
-例えば、`FutureProvider`では初回の非同期処理中にだけ`AsyncLoading`になっていましたが、\
-`state`を直接`AsyncLoading()`で代入することで、任意のタイミングで`AsyncLoading`になり得る、といったようなことに注意が必要になってきます。\
+<span style="font-size: 0.8em; opacity: 0.8;">例えば、`FutureProvider`では初回の非同期処理中にだけ`AsyncLoading`になっていましたが、
+`state`に直接`AsyncLoading()`を代入することで、任意のタイミングで`AsyncLoading`になってしまいます。</span>\
 `AsyncValue`を後から変更するための便利なメソッドはいくつか用意されているので、それらを駆使して実装しましょう。
 
 <div grid="~ cols-2 gap-4">
@@ -985,8 +985,8 @@ state = state.unwrapPrevious();
 ほとんどの場合、`FutureProvider`で紹介したときの条件分岐ができていれば十分だと思いますが、\
 ひとつ注意点があります。
 
-`state = copyWithPrevious(state, isRefresh: false);`とすると、前回の値やエラーが保持されることには変わりませんが、
-クラスが`AsyncData`や`AsyncError`ではなく、`AsyncLoading`になることに注意する。\
+`state = AsyncLoading<T>().copyWithPrevious(state, isRefresh: false);`とすると、前回の値やエラーが保持されることには変わりませんが、
+クラスが`AsyncData`や`AsyncError`ではなく、`AsyncLoading`になることに注意してください。\
 <span style="font-size: 0.8em; opacity: 0.8;">`state = copyWithPrevious(state);`とすると`AsyncData`か`AsyncError`の`isLoading`が`true`になるだけで、`AsyncLoading`にはならない。</span>
 
 これは、リフレッシュではない（同じ条件での取得でない）と指定していることになっており、
@@ -1010,8 +1010,8 @@ state = state.unwrapPrevious();
 
 ### プロバイダーの種類：AsyncNotifierProvider (AsyncValueについて)
 
-また、内部的に`AsyncValue`を使用しているプロバイダーについては、`invalidate()`によってリフレッシュ扱いとなるので、自動で`isLoading`を`true`にしてくれるなど行ってくれています。\
-そのため、やむを得ない場合を除き、極力直接`AsyncValue`を使用しないようにしてください。<span style="font-size: 0.9em; opacity: 0.8;">実装者の負担が増えます。😢</span>
+内部的に`AsyncValue`を使用しているプロバイダーについては、`invalidate()`によって自動で`isLoading`を`true`にしてくれるなど行ってくれています。\
+そのため、やむを得ない場合を除き、直接`AsyncValue`を使用するのは避けましょう。<span style="font-size: 0.9em; opacity: 0.8;">実装者の負担が増えます。😢</span>
 
 <div grid="~ cols-2 gap-4">
 
@@ -1093,7 +1093,7 @@ return switch (ref.watch(sampleProvider)) {
 ### プロバイダー全般の注意点: 定義場所
 
 ここまで紹介してきたプロバイダーについて、いくつか注意点があります。\
-まず、<span style="text-decoration-line: underline; text-decoration-color: red;">必ずグローバルに定義する</span>ようにしてください。\
+まず、プロバイダーを<span style="text-decoration-line: underline; text-decoration-color: red;">必ずグローバルに定義する</span>ようにしてください。\
 [Riverpodの公式ドキュメント](https://riverpod.dev/ja/docs/essentials/do_dont)でも指摘されているように、ローカルに定義するとメモリリークなどの原因にになります。
 
 <br/>
@@ -1267,6 +1267,67 @@ class SampleStateNotifier extends Notifier<SampleState> {
 
 ---
 
+### プロバイダー全般の注意点: 更新中の更新
+
+3つ目の注意点です。\
+プロバイダーは初期化時に`ref`を取得できますが、その時に別のプロバイダーを更新することはしないでください。\
+してしまったらエラーになります。設計など見直しましょう。\
+どうしても更新する必要があるときは`WidgetsBinding.instance.addPostFrameCallback`を使用してください。\
+これは、次のフレームが描画された後に実行される関数を記述できます。
+
+<div grid="~ cols-2 gap-4">
+
+<div>
+
+<CodeCaption><span style="color: red; font-weight: bold;">x</span> 誤っているコード例</CodeCaption>
+
+```dart
+final sampleProvider = NotifierProvider<
+  SampleNotifier,
+  int>(SampleNotifier.new);
+class SampleNotifier extends Notifier<int> {
+  @override
+  int build() {
+    // プロバイダーの更新中に他のプロバイダーを更新はダメ
+    ref.read(otherProvider.notifier).increment();
+    return 0;
+  }
+  void increment() {
+    state += 1;
+  }
+}
+```
+
+</div>
+
+<div>
+
+<CodeCaption><span style="color: green; font-weight: bold;">o</span> 正しいコード例</CodeCaption>
+
+```dart
+final sampleProvider = NotifierProvider<
+  SampleNotifier,
+  int>(SampleNotifier.new);
+class SampleNotifier extends Notifier<int> {
+  @override
+  int build() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(otherProvider.notifier).increment();
+    });
+    return 0;
+  }
+  void increment() {
+    state += 1;
+  }
+}
+```
+
+</div>
+</div>
+
+---
+
+
 ### 各プロバイダーに付与できる修飾子について
 
 プロバイダーには`autoDispose`と`family`という修飾子を付与でき、効果は以下の通りです。
@@ -1434,9 +1495,8 @@ class SampleNotifier extends AutoDisposeNotifier<int> {
 <div style="font-size: 0.7em; opacity: 0.6;">
 (例: 通信のキャンセルやCloseなどを行うことが多いです。
 <span style="text-decoration-line: underline; text-decoration-color: red;">
-TextEditingControllerなどのController系のdisposeには使用せず、後述するFlutterHooksを使用してください。
-</span>
-理由も後述してします。)
+TextEditingControllerなどのController系のdisposeには使用せず、後述するFlutterHooksを使用してください
+</span>。)
 </div>
 
 
@@ -1473,9 +1533,10 @@ class SampleWidget extends ConsumerWidget {
 
 ### 各プロバイダーに付与できる修飾子について: family
 
-familyに渡すことができるパラメータはひとつだけなので、複数渡したいときはクラスとして定義して渡すか、Recordを使用します。\
-Recordについては[公式](https://dart.dev/language/records)を参照してください。\
-当然名前付きでないパラメータも渡せますが、名前付きで渡したほうが可読性が高まります。
+familyに渡すことができるパラメータはひとつだけなので、複数渡したいときはクラスとして定義して渡すか、<span style="text-decoration-line: underline; text-decoration-color: cyan;">Record</span>を使用します。\
+Recordは匿名の構造体のようなものです。詳細は[公式](https://dart.dev/language/records)を参照してください。
+
+名前付きでないRecordも当然渡せますが、名前付きで渡したほうが可読性が高まるのでおすすめです。
 
 <CodeCaption>Recordを使用する例</CodeCaption>
 
@@ -1623,8 +1684,13 @@ class SampleWidget extends HookConsumerWidget {
     return Text(isSample.value ? 'sample' : 'foobar');
   }
 }
-
 ```
+
+<div style="font-size: 0.8em; opacity: 0.5; padding-top: 16px; text-align: right;">
+
+HooksはReactを使ったことがある人にとっては馴染み深いかもしれません。
+
+</div>
 
 </div>
 </div>
@@ -1635,14 +1701,14 @@ class SampleWidget extends HookConsumerWidget {
 
 わざわざHooksを使用しなくても全部プロバイダーで管理すればと思うかもしれませんが、\
 Riverpodはあくまで<span style="text-decoration-line: underline; text-decoration-color: cyan;">`Widget`間の共通の状態を管理するために設計されています</span>。\
-画面ひとつで完結してたいしたロジックも持たないような状態までプロバイダーで管理しようとすると、グローバルに定義しなければならない縛りがある以上、管理が複雑になっていきます。\
+画面ひとつで完結してロジックも持たないような状態までプロバイダーで管理しようとすると、グローバルに定義しなければならない縛りがある以上、管理が複雑になっていきます。\
 さらに、別の`Widget`から状態を変更されると困るのであれば、管理がより一層厳しくなります。
 <span style="font-size: 0.8em; opacity: 0.8;">\
 例えば、とあるパスワード入力欄でパスワードの表示・非表示の切り替えや、`TextEditingController`などのController系、アニメーションの制御など、どうやっても1画面で完結するような状態の管理はRiverpodには向いていません。\
 </span>
 
-もちろん、外部からアクセスされたくないからといって全てをHooksで記述するのも、それはそれでロジックがWidgetに記述されやすくなり、管理が難しくなるので控えましょう。\
-どちらを積極的に使用するかは、各プロジェクトの方針に従うようにしてください。
+もちろん、何でもかんでもHooksで記述するのも、それはそれで管理が難しくなるので控えましょう。\
+どちらを積極的に使用するか（しないか）は、各プロジェクトの方針に従うようにしてください。
 
 また、Hooksには単純に変数の管理のために使用する`useState`の他に、`useEffect`や`useMemoized`などが存在します。\
 全てのuse系は紹介できませんので、詳細は[FlutterHooksの公式](https://pub.dev/packages/flutter_hooks#existing-hooks)を参照してください。
@@ -1653,7 +1719,8 @@ Riverpodはあくまで<span style="text-decoration-line: underline; text-decora
 
 ### FlutterHooks: useState
 
-`useState`は`HookWidget`で使用できる最も簡単なもので、非常に簡単に状態を管理することができます。
+`useState`は`HookWidget`で使用できる最も単純な状態管理方法です。\
+参照も更新も`.value`をつけるだけでいつもの記述方法で行うことができます。
 
 ```dart
 class SampleWidget extends HookWidget {
@@ -1661,7 +1728,7 @@ class SampleWidget extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSample = useState<bool>(true);
+    final isSample = useState<bool>(true); // build内でuseState
     return TextButton(
       // .valueで値を取り出す
       child: Text(isSample.value ? 'sample' : 'foobar'),
@@ -1676,12 +1743,15 @@ class SampleWidget extends HookWidget {
 
 簡単ですね😊
 
+
 ---
 
 ### FlutterHooks: useMemoized
 
-`useMemoized`は`useState`と違って`Widget`の再描画によって値が更新されることはありません。\
-`useMemoized`は、計算コストの高い処理の結果をキャッシュするのに適しています。以下に例を示します：
+`useMemoized`は値をキャッシュして、何度も同じ計算をすることを防ぐことができます。\
+アルゴリズムをかじったことがある人は聞き覚えがあるかもしれませんが、いわゆる<span style="text-decoration-line: underline; text-decoration-color: cyan;">メモ化</span>です。\
+第一引数に関数、第二引数に一時保持するためのKeyを渡します。Keyが変われば再計算されます。\
+第二引数に`const []`のようなものを渡すと2度と再計算されません。
 
 ```dart
 class SampleWidget extends HookWidget {
@@ -1689,30 +1759,33 @@ class SampleWidget extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expensiveCalculation = useMemoized(() => expensiveCalculation(), []);
+    final expensiveCalculation = useMemoized(() => expensiveCalculation(), const []);
     return Text(expensiveCalculation.toString());
   }
 }
 ```
 
+使用している画面そのものが破棄されるとメモ化された値も破棄されるので、アプリで<span style="text-decoration-line: underline; text-decoration-color: red;">永続化されるわけではない</span>ことに注意してください。
+
+`FromState`の`GlobalKey`を作成するなどにも使用されており、汎用性は高いです。
+```dart
+final formKey = useMemoized(GlobalKey<FormState>.new, const []);
+```
+
 ---
 
-### FlutterHooksによるController管理
+### FlutterHooks: Controller
 
-`TextEditingController`など、Flutterで出てくるController系は\
+`TextEditingController`などが代表する、Flutterで出てくるController系は\
 `StatefulWidget`で使用することを前提としているため、`StatelessWidget`では基本的に使用できません。\
-そこで、`HookWidget`を使用することでController系を`StatefulWidget`なしで定義・使用できるようになります。
-
-また、<span style="text-decoration-line: underline; text-decoration-color: cyan;">Controller系は`Widget`と同じライフサイクルであるべき</span>であるため、`HookWidget`を使用することが強く推奨されます。\
-最悪の場合はメモリリークなどが発生します。\
-加えて、Riverpodは複数の`Widget`で共有する状態を管理することに適しているため、1画面で確実に完結する<span style="text-decoration-line: underline; text-decoration-color: red;">Controller系はRiverpodで管理しない</span>ようにしてください。
+そこで、`HookWidget`を使用することでControllerを`StatefulWidget`なしで定義・使用できるようになります。
 
 ```dart
 class SampleWidget extends HookWidget {
   const SampleWidget({super.key});
 
   Widget build(BuildContext context) {
-    final editingController = useTextEditingController();
+    final editingController = useTextEditingController(); // 他のControllerも同じような書き方
     return TextField(
       controller: editingController,
     );
@@ -1720,11 +1793,23 @@ class SampleWidget extends HookWidget {
 }
 ```
 
+<span style="text-decoration-line: underline; text-decoration-color: cyan;">Controllerは`Widget`と同じライフサイクルであるべき</span>であるため、`HookWidget`を使用することを強く推奨します。\
+HooksはWidgetと同じライフサイクルで管理してくれるため最適です。
+
+<div style="font-size: 0.9em; opacity: 0.9;">
+
+<span style="text-decoration-line: underline; text-decoration-color: red;">RiverpodではControllerを管理しない</span>ようにしてください。\
+Widgetとは異なるライフサイクルで管理しているため、`dispose()`忘れなどで最悪メモリリークなどを発生させる可能性があります。
+
+</div>
+
+
 ---
 
-### FlutterHooksでuse**Controllerを自作する: カスタムフック
+### FlutterHooks: use**Controllerを自作する
 
-また、他パッケージなどで定義されているController系についても自分で`use`を定義して使用することができます。
+既存のController以外にも、パッケージなどで定義されているControllerもあるでしょう。\
+これらについても自分で`use`を使用して`use~~Controller`を定義できます。
 
 ```dart
 SampleController useSampleController() {
@@ -1751,11 +1836,17 @@ class _SampleControllerState extends HookState<SampleController, _SampleControll
 
 ---
 
-### FlutterHooksのuseEffect
+### FlutterHooks: useEffect
 
-`useEffect`は他とは少し違って、(副作用と呼ばれる)`Widget`のライフサイクルに合わせた任意の処理を実行させることができます。
+`useEffect`は他とは少し違って、`Widget`のライフサイクルに合わせて任意の処理を実行させることができるものです。
 
-<CodeCaption>useEffectの意味</CodeCaption>
+第二引数に与えるKeyが変わる時に実行されるというのは`useMemoized`と同じですね。
+
+<div grid="~ cols-2 gap-4">
+
+<div>
+
+<CodeCaption>useEffectの内容</CodeCaption>
 
 ```dart
 useEffect(
@@ -1769,18 +1860,59 @@ useEffect(
 );
 ```
 
-<CodeCaption>useEffectの例</CodeCaption>
+</div>
+
+<div>
+
+<CodeCaption>使用例</CodeCaption>
 
 ```dart
+// アニメーションコントローラー用のHooks
+final animationController = useAnimationController(
+  duration: const Duration(seconds: 1),
+);
+
 useEffect(
   () {
-    print('useEffect');
-    return () {
-      print('widget dispose');
-    };
+    // 初回だけアニメーションさせる
+    animationController.forward();
+    return null;
   },
-  [sampleValue],
+  const [],
 );
+```
+
+</div>
+</div>
+
+---
+
+### Riverpodで管理している状態をFlutterHooksと連携する
+
+では、ここまでの内容を踏まえて、ひとつの例を記述してみます。\
+プロバイダーで入力値を保持しながら、それが別のところから更新されたときにもControllerの値を同期させるという状況を考えてみます。
+もし以下のコードがスラスラと読めるのであれば、状態管理にも十分慣れている証拠でしょう。👏
+
+```dart {all|2|3|4,5,12-14|6-11|15-18|all}
+Widget build(BuildContext context, WidgetRef ref) {
+  final controller = useTextEditingController(); // step1: コントローラーを作成
+  final currentState = ref.watch(sampleProvider); // step2: プロバイダーの値を監視
+  useEffect(
+    () {
+      WidgetsBinding.instance.addPostFrameCallback((timeStamp) { // step4: フレーム描画後にcontrollerの値をプロバイダーの値と一致させる
+        if (controller.text != currentState) { // 遅延実行なので、ここで必ずしも違うわけではないため再度チェック
+          controller.text = currentState;
+        }
+      });
+      return null;
+    },
+    [controller.text != currentState], // step3: プロバイダーの値が変わり、controller.textの値と異なる場合に実行
+  );
+  return TextField(
+    controller: controller,
+    onChanged: ref.read(sampleProvider.notifier).updateState, // step5: 入力値に従ってプロバイダーの値を更新するTextFieldを定義
+  );
+}
 ```
 
 
@@ -1793,6 +1925,8 @@ layout: section
 ---
 
 ### constによる再描画判定の阻止
+
+ここからは状態管理におけるパフォーマンス改善のお話です。まずは最も単純なところです。
 
 `Widget`のコンストラクタでLinterに`const`を付けるように注意されている場合、`const`をつけておきましょう。\
 `Widget`インスタンスが使い回されることで、ある程度のパフォーマンス改善が期待できるため必ず実施してください。
@@ -1807,9 +1941,9 @@ class SampleWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sample Title'),
+        title: const Text('Sample Title'), // ここも
       ),
-      body: const Center(
+      body: const Center( // ここも
         child: Text('sample text'),
       ),
     );
@@ -1822,7 +1956,7 @@ class SampleWidget extends StatelessWidget {
 
 ### Riverpodのパフォーマンス向上: refの範囲を絞る
 
-小さな範囲で`ref`を使うことで、再構築を行う範囲を狭めることができます。\
+小さな範囲で`ref`を使うことで、再構築処理を行う範囲を狭めることができます。\
 例えば、`ConsumerWidget`を継承するclassを分割して定義することで範囲を絞ることができます。\
 しかし、classを細かく定義しすぎると可読性が下がるため、`Consumer`を使用することも検討してください。
 
@@ -1884,7 +2018,7 @@ class SampleWidget extends StatelessWidget {
 ### Riverpodのパフォーマンス向上: selectを使用する
 
 `select`を使用して必要な値だけを監視することで、必要最低限の時だけ再構築するようにします。\
-以下コード例では`x`だけを監視しており、`SampleState`の参照が変わるだけでは更新されないようになります。
+以下コード例では`x`だけを監視しており、`SampleState`の参照が変わったり`y`が変わったりしても更新されないようになります。
 
 ```dart
 class SampleState {
@@ -1938,8 +2072,8 @@ class SampleWidget extends ConsumerWidget {
 
 ### Riverpodのパフォーマンス向上: selectAsyncを使用する
 
-`select`では`AsyncValue`を監視するときに記述量が多くなり面倒です。\
-そこで、`selectAsync`を使用することでFutureを取得することができるのでこれも活用しましょう。
+`select`では`AsyncValue`を監視するときに記述量が多くなり面倒になりがちです。\
+そこで、`selectAsync`を使用することでFutureを取得することができるのでこれも活用してみましょう。
 
 ```dart
 final sampleProvider = FutureProvider<int>((ref) async {
@@ -1967,8 +2101,14 @@ class SampleWidget extends ConsumerWidget {
 
 ### FlutterHooksのパフォーマンス向上
 
-考え方はプロバイダーの`select`などと同様で、再描画判定の範囲を狭めるために可能な限り小さな範囲で`use**`を使用しましょう。\
-細かくしすぎると読みづらいコードになるため注意してください。
+考え方はプロバイダーの`select`と同様で、再描画処理の範囲を狭めるために可能な限り小さな範囲で`use**`を使用しましょう。\
+また、細かくしすぎると読みづらいコードになるので、HookBuilderの使用も検討してください。
+
+<div grid="~ cols-2 gap-4">
+
+<div>
+
+<CodeCaption>class分割例</CodeCaption>
 
 ```dart
 class SampleHookWidget extends HookWidget {
@@ -1985,7 +2125,34 @@ class SampleHookWidget extends HookWidget {
   }
 }
 ```
+</div>
 
+<div>
+
+<CodeCaption>HookBuilder使用例</CodeCaption>
+
+```dart
+class SampleHookWidget extends StatelessWidget {
+  const SampleHookWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return HookBuilder(
+      builder: (context) {
+        final isEnabled = useState<bool>(false);
+        final controller = useTextEditingController();
+        return TextField(
+          enabled: isEnabled.value,
+          controller: controller,
+        );
+      },
+    );
+  }
+}
+```
+
+</div>
+</div>
 
 ---
 layout: section
@@ -1996,92 +2163,219 @@ layout: section
 ---
 
 
-### Navigator
+### 画面遷移について
 
-Navigator 1.0は、Flutterの基本的な画面遷移システムで\
-仕組みは単純でページのスタックを管理しているだけです。
+さて、ここまでで状態管理について学んできましたが、複数画面のあるアプリケーションを作る場合は、当然画面遷移が必要になります。\
+Flutterの画面遷移について軽く学びましょう。
 
-以下は画面遷移における主要なコンポーネント
+Flutterでは最初、単純なスタックを使った画面遷移をサポートしていました。
 
-- Navigator\
-  Navigatorは画面(ページ)を管理するウィジェット
-- Route
-- Page
+<div style="font-size: 0.6em; display: flex; align-items: center; gap: 10px; padding-top: 10px; padding-bottom: 10px;">
 
-```mermaid
-%%{
-  init: {
-    "gantt": {
-        "useWidth": "300"
-    }
-  }
-}%%
-gantt
-  title Navigator
-  dateFormat X
-  tickInterval 1day
+<div style="display: flex; flex-direction: column; align-items: center; border: 2px solid gray; width: 128px; border-top: none;">
+<div style="opacity: 0; border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage2</div>
+<div style="opacity: 0;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage1</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">BasePage</div>
+</div>
 
-  section PagesStack
-  Stack2Widget   : 0, 1
-  Stack1Widget   : 0, 1
-  BaseWidget   : 0, 1
+<div style="font-size: 2em; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 50px;">
+  <div>→</div>
+  <div style="font-size: 0.5em;">push</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; border: 2px solid gray; width: 128px; border-top: none;">
+<div style="opacity: 0; border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage2</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage1</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">BasePage</div>
+</div>
+
+<div style="font-size: 2em; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 50px;">
+  <div>→</div>
+  <div style="font-size: 0.5em;">push</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; border: 2px solid gray; width: 128px; border-top: none;">
+<div style="opacity: 1; border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage2</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage1</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">BasePage</div>
+</div>
+
+<div style="font-size: 2em; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 50px;">
+  <div>→</div>
+  <div style="font-size: 0.5em;">pop</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; border: 2px solid gray; width: 128px; border-top: none;">
+<div style="opacity: 0; border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage2</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage1</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">BasePage</div>
+</div>
+
+<div style="font-size: 2em; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 50px;">
+  <div>→</div>
+  <div style="font-size: 0.5em;">replace</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; border: 2px solid gray; width: 128px; border-top: none;">
+<div style="opacity: 0; border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage1</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">NewPage2</div>
+<div style="opacity: 1;border: 1px solid gray; padding: 5px; width: 120px; text-align: center;">BasePage</div>
+</div>
+
+</div>
+
+```dart
+Navigator.push(context, MaterialPageRoute(builder: (context) => NewPage()));
+Navigator.pop(context);
 ```
+
+このようなコードでページを追加して画面遷移していました。
+
+ですが、この単純な方法のページ遷移では様々な問題があります。\
+一番の問題はディープリンクです。特定のページへ直接移動する手法がスタックの遷移では難しかったのです。
+
+そこで改良されたものが<span style="text-decoration-line: underline; text-decoration-color: cyan;">Router(Navigator2.0)</span>です。\
+<span style="font-size: 0.8em; opacity: 0.8;">ちなみに、この単純なスタックによる画面遷移についてはNavigator(Navigator1.0)と呼ばれ、現在でも使用でき、Routerと併用できます。</span>
 
 ---
 
 ### Navigator 2.0
 
-Navigator 2.0は、Navigator 1.0の改良版です。
+しかし、改良版であるRouterは、そのまま使うには複雑すぎてNavigatorのように簡単には扱えないです。😭
 
-- ルート（Route）：画面を表す
-- スタック：画面の履歴を管理
-- プッシュ（Push）：新しい画面をスタックに追加
-- ポップ（Pop）：現在の画面をスタックから削除
+<div style="display: flex;">
 
-以下は簡単な例です：
+<div style="width: 38%;">
 
+[右図](https://qiita.com/vsuine/items/9cf7c2dc9f94b16d85ae)には、Navigator2.0で実装するメソッドの流れが示されているのですが、すぐに理解できる人は少ないでしょう。
+
+この複雑さを隠蔽してくれるパッケージが作成されています。😎\
+メジャーなのは以下の２つです。
+
+- [go_router](https://pub.dev/packages/go_router): 公式で使用が推奨されている
+- [auto_route](https://pub.dev/packages/auto_route)
+
+<span style="font-size: 0.8em; opacity: 0.8;">しかし、より複雑な制御をする時はこのようなパッケージではできないこともあります。いずれRouterを理解する必要が出てくるかもしれません。少し詳しく書かれてる[記事](https://qiita.com/vsuine/items/9cf7c2dc9f94b16d85ae)を載せておきます。</span>
+
+
+</div>
+
+<div>
+
+```mermaid {scale: 0.3}
+sequenceDiagram
+    participant OS
+    participant BackButtonDispatcher
+    participant RouteInformationProvider
+    participant RouteInformationParser
+    participant RouterDelegate
+    participant Router
+    participant AppState
+    opt アプリ起動、URL入力、ブラウザの「戻る」「進む」押下
+        OS->>RouteInformationProvider: アプリ起動、URL入力通知
+        RouteInformationProvider->>RouteInformationParser: RouteInformationを渡す
+        RouteInformationParser->>RouteInformationParser: parseRouteInformation でパス解析
+        RouteInformationParser-->>RouterDelegate: 解析して得たユーザー定義クラスを渡す
+        RouterDelegate-->>AppState: 得たクラスから setNewRoutePath で状態更新
+    end
+    opt 戻るボタン押下
+        OS->>BackButtonDispatcher: 戻るボタン押下通知
+        BackButtonDispatcher->>RouterDelegate: 戻るボタン押下通知
+        RouterDelegate->>RouterDelegate: popRoute
+        RouterDelegate->>AppState: 状態更新
+    end
+    AppState->>Router: 状態更新通知
+    Router->>RouterDelegate: 経路更新通知
+    RouterDelegate->>RouterDelegate: currentConfiguration で現在の状態を解析
+    RouterDelegate->>Router: 現在の状態から rebuild
+    RouterDelegate->>RouterDelegate: restoreRouteInformation で RouteInformation 復元
+    RouterDelegate->>RouteInformationParser: 復元したパスを渡す
+    RouteInformationParser->>RouteInformationProvider: 受け取ったパスを使ってルート更新依頼
+    RouteInformationProvider->>OS: ルート更新依頼
+```
+
+</div>
+</div>
+
+---
+
+### go_routerの使用例
+
+go_routerでは、先にどのようなページ遷移があるかを事前に記述してから、その遷移先を指定することで画面遷移を行います。\
+[公式のコード例](https://pub.dev/packages/go_router/example)のままですが、以下のようになります。例を見つつ実装してみましょう。
+
+
+````md magic-move
 ```dart
-class MyRouterDelegate extends RouterDelegate<List<Page<dynamic>>> {
-  @override
-  Widget build(BuildContext context) {
-    return Navigator(
-      pages: [Page(child: HomePage())],
-      onPopPage: (route, result) => route.didPop(result),
-    );
-  }
-
-  @override
-  Future<void> setNewRoutePath(List<Page<dynamic>> path) async {
-    // 新しいルートを設定
-  }
-
-  @override
-  List<Page<dynamic>> get currentConfiguration => [Page(child: HomePage())];
+// step1: まずは画面を用意する
+class HomeScreen extends StatelessWidget {
+  ...
 }
-
-class MyRouteInformationParser extends RouteInformationParser<List<Page<dynamic>>> {
-  @override
-  Future<List<Page<dynamic>>> parseRouteInformation(RouteInformation routeInformation) async {
-    // ルート情報を解析
-  }
-
-  @override
-  RouteInformation? restoreRouteInformation(List<Page<dynamic>> configuration) {
-    // ルート情報を復元
-  }
+class DetailsScreen extends StatelessWidget {
+  ...
 }
+```
+```dart
+class HomeScreen extends StatelessWidget { ... }
+class DetailsScreen extends StatelessWidget { ... }
+// step2: ページの構成を記述する
+final GoRouter _router = GoRouter(
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/',
+      builder: (BuildContext context, GoRouterState state) {
+        return const HomeScreen();
+      },
+      routes: <RouteBase>[
+        GoRoute(
+          path: 'details',
+          builder: (BuildContext context, GoRouterState state) {
+            return const DetailsScreen();
+          },
+        ),
+      ],
+    ),
+  ],
+);
+```
+```dart
+// step3: MaterialAppをMaterialApp.routerにして、routerConfigに渡す
+class HomeScreen extends StatelessWidget { ... }
+class DetailsScreen extends StatelessWidget { ... }
+final GoRouter _router = GoRouter(...)
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: MyRouterDelegate(),
-      routerDelegate: MyRouterDelegate(),
-      routeInformationParser: MyRouteInformationParser(),
+    return MaterialApp.router(
+      routerConfig: _router,
+    );
+  }
+}
+void main() => runApp(const MyApp());
+```
+```dart
+// step4: context.goで画面遷移するコードを記述する
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Home Screen')),
+      body: Center(
+        child: ElevatedButton(
+          onPressed: () => context.go('/details'),
+          child: const Text('Go to the Details screen'),
+        ),
+      ),
     );
   }
 }
 ```
+````
 
 ---
 layout: section
@@ -2091,88 +2385,239 @@ layout: section
 
 ---
 
-### テストの種類とその意義
+### Flutterのテストの基本
 
-テストには以下のような種類があります。
+ここまでで実装だけならできるようになったと思います。実際にアプリを作ってみるといいでしょう。\
+ですが、実装だけでなくテストも重要です。Flutterにおけるテストには以下のようなものがあります。
 
-<div style="font-size: 0.8em;">
+<div style="font-size: 0.9em;">
 
-| テストの種類 | 説明 |
-| --- | --- |
 | 単体テスト(Unit Test) | コードの最小単位である関数やメソッドをテストする |
+| --- | --- |
 | ウィジェットテスト(Widget Test) | ウィジェットの描画やイベント処理をテストする |
 | 統合テスト(Integration Test) | 複数のコンポーネントが組み合わされた状態でのテスト |
 
 </div>
 
-最初に書いた`ProviderScope`は実は様々な使用方法があります。
+<br/>
 
-```dart
-ProviderScope(
-  overrides: [
-    sampleProvider.overrideWith(
-      (ref) => ref.watch(sampleFamilyProvider('10')),
-    ),
-  ],
-  child: const SampleWidget(),
-)
+テスト用のコードはtestディレクトリの中に配置し、名前は`*_test.dart`という名前にします。
+
+```
+├── lib
+└── test
+    └── unit
+        └── sample_test.dart
 ```
 
-`runApp`直下の`ProviderScope`でRepositoryやServiceクラスなどをoverrideして適当なモッククラスを渡せば\
-UI側(`Widget`とプロバイダー)だけで実行できるようになる。
-
-```dart
-ProviderScope(
-  overrides: [
-    repositoryProvider.overrideWith((ref) => MockRepository()),
-  ],
-  child: const MyApp(),
-)
-```
+`*_test.dart`という名前にしないとテストとして認識されないので注意しましょう。
 
 
 ---
 
-### 依存性注入でテストなどを実施する
+### 単体テスト
 
-プロバイダーを使って依存性注入できる。
+単体テストはコードの最小単位である関数やメソッドをテストするものです。一番単純なものですね。
 
-<CodeCaption>Repositoryを注入するコード例</CodeCaption>
+`equals`などはMatcherと呼ばれるもので、`expect`の引数に渡してあげることでテストを行うことができます。\
+Matcherの種類は多すぎるので、都度[こちら](https://api.flutter.dev/flutter/package-matcher_matcher/package-matcher_matcher-library.html)から確認しましょう。
+
+<CodeCaption>単体テストの例</CodeCaption>
+
+```dart
+void main() {
+  test('sample function test', () {
+    final sample = SampleClass();
+    expect(sample.sampleFunction(3), equals(6));
+    expect(sample.sampleFunction(1), equals(2));
+  });
+}
+```
+
+<div style="display: flex;">
+<div style="width: 65%; padding-right: 32px;">
+
+テストの実行は以下のようにコマンドで実行するか、\
+VSCodeのテストボタンから実行できます。
+
+```bash
+flutter test test/unit/sample_test.dart
+```
+
+</div>
+<div style="padding-top: 16px;">
+
+<img src="/test.png" width="250">
+
+</div>
+</div>
+
+---
+
+### 単体テスト: プロバイダーを使用する
+
+`ProviderContainer`というものを使用して、プロバイダーをテストすることもできます。
+
+```dart
+ProviderContainer createContainer({
+  ProviderContainer? parent,
+  List<Override> overrides = const [],
+  List<ProviderObserver>? observers,
+}) {
+  final container = ProviderContainer(
+    parent: parent,
+    overrides: overrides,
+    observers: observers,
+  );
+  // containerのdisposeが行われるようにする
+  addTearDown(container.dispose);
+  return container;
+}
+
+void main() {
+  test('sample provider test', () async {
+    final container = createContainer();
+    // containerでreadする
+    expect(container.read(sampleProvider), equals(100));
+  });
+}
+```
+
+---
+
+### Widgetテスト
+
+Widgetテストは、`Widget`の描画やイベント処理をテストするものです。\
+基本的には`Finder`で`Widget`を探して、その`Widget`が存在するかどうかや、タップなどのイベントをシミュレートして結果が正しいかどうかをテストします。
+
+`Finder`や`Matcher`など、テストに関連する情報は必要な時に[公式ページ](https://docs.flutter.dev/cookbook/testing/widget/introduction)を見返すようにすると良いでしょう。
+
+```dart
+class SampleWidget extends ConsumerWidget {
+  const SampleWidget({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Text('100');
+  }
+}
+
+void main() {
+  testWidgets('SampleWidget test', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: SampleWidget()), // MaterialAppで囲んでおくと良い
+    );
+    expect(find.text('100'), findsOneWidget); // 100のテキストを持つWidgetが1つだけあることを確認
+  });
+}
+
+```
+
+---
+
+### Widgetテスト: プロバイダーを使用する
+
+<div grid="~ cols-2 gap-6">
+
+<div>
+
+プロバイダーを使用している場合は、`ProviderScope`で囲むことで、`Widget`テストでもプロバイダーを使用できるようになります。
+
+```dart
+void main() {
+  testWidgets('SampleWidget', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SampleWidget()),
+      ),
+    );
+    expect(find.text('100'), findsOneWidget);
+  });
+}
+```
+
+</div>
+
+<div>
+
+また、プロバイダーのモックを作るには、以下のようにoverrideを使用します。
+
+```dart
+final sampleProvider = Provider<int>((ref) => 100);
+
+void main() {
+  test('sample provider test', () async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SampleWidget()),
+        overrides: [
+          sampleProvider.overrideWith((ref) => 200),
+        ],
+      ),
+    );
+    expect(find.text('200'), findsOneWidget);
+  });
+}
+```
+
+</div>
+</div>
+
+---
+
+### Notifierのモックは作らない
+
+Notifierを直接モックするのではなく、Notifierが依存している抽象をモックすることでテストします。\
+以下のようにNotifierをRepositoryに依存させることで、テストではRepositoryをoverrideします。
 
 ```dart
 final repositoryProvider = Provider<Repository>(
-  (ref) => UnimplementedError(), // 実装を与えないようにしておく
+  (ref) => throw UnimplementedError(),
 );
 abstract class Repository {
   Future<int> fetch();
 }
 
-final sampleProvider = AsyncNotifierProvider<SampleStateNotifier, int>(SampleStateNotifier.new);
-class SampleStateNotifier extends AsyncNotifier<int> {
-  late Repository _repository;
+final sampleProvider = NotifierProvider<SampleStateNotifier, int>(SampleStateNotifier.new);
+class SampleStateNotifier extends Notifier<int> {
   @override
-  Future<int> build() async {
-    _repository = ref.watch(repositoryProvider); // 参照はref.watchで行う
-    return _repository.fetch();
+  int build() {
+    return 0;
   }
-  void increment() {
-    state = state.whenData((data) => data + 1);
+  Future<void> fetch() async {
+    final res = await ref.read(repositoryProvider).fetch();
+    state = state.whenData((data) => data + res);
   }
 }
 ```
 
+プロバイダーのテストについて、より詳細な情報が必要であれば[こちら](https://riverpod.dev/ja/docs/essentials/testing)を参照してください。
 
 
 ---
-layout: end
+layout: section
 ---
 
-## 困った時は
+## おわりに
 
-公式サイト・検索・AIChatでWeb検索をかけて聞くなどする。
+---
 
-AIChatでは基本的に古い情報が扱われるため、新しい情報が手に入らないことが多い。\
-そのため、誤情報・非推奨の情報などが出てくることに注意する。
+### おわりに
+
+ここまでお疲れ様でした。🎉🎉🎉\
+最低限Flutterでアプリを開発することができるようになったのではないでしょうか。\
+最初にも言った通り、実際にアプリを作成しながら知識を深めていくことを推奨しています。\
+更新の激しい技術であるため、このチュートリアルだけでなく、学び続けることを心がけましょう。
+
+### 困ったときは
+
+公式サイト・検索・AIChatのWeb検索機能で聞くなどしましょう。
+
+AIChatでは古い情報も多く扱われるため、変化の激しい技術では間違った知識を回答することも珍しくありません。\
+誤情報・非推奨の情報などが出てくることに注意しましょう。
+
+また、公式を見ると新しい発見や思いがけないミスを見つけることがあります。
+時間があれば積極的に見てみましょう。
 
 [Flutter](https://flutter.dev)・[Riverpod](https://riverpod.dev/ja/)・[FlutterHooks](https://pub.dev/packages/flutter_hooks)
 
@@ -2183,7 +2628,7 @@ layout: intro
 
 # おまけ
 
-以降は開発において必須ではない発展的な内容だが、理解を深めるための一助になれば
+以降はチュートリアルの域を逸脱していますが、理解を深めるための一助になれば幸いです。
 
 ---
 layout: section
@@ -2196,9 +2641,9 @@ layout: section
 
 ### 具体的な描画の仕組み
 
-これまで使ってきた`Widget`は画面の設定を行っているものであり、実際に描画を行っているのは`Widget`ではない。\
-結論を言えば、`Widget`に対応する`Element`が`RenderObject`に命令して描画している。\
-`Widget`ツリー以外に`Element`ツリーと`RenderObject`ツリーが存在し、それぞれ以下のような関係になっている。
+これまで使ってきた`Widget`は画面の設定を行っているものであり、実は描画を行っているのは`Widget`ではありません。\
+結論を言えば、<span style="text-decoration-line: underline; text-decoration-color: cyan;">`Widget`に対応する`Element`が`RenderObject`に命令して描画しています。</span>\
+Flutterには`Widget`ツリー以外に`Element`ツリーと`RenderObject`ツリーが存在しており、それぞれ以下のような関係です。
 
 - `Widget`ツリーはあくまでUIを構築するための設定を持つ程度であり、その設定に対応するように`Element`ツリーが存在する
 - `Element`ツリーは`Widget`ツリーと1対1に対応しており、`Widget`ツリーの設定を反映した状態になる\
@@ -2265,15 +2710,15 @@ graph
 
 ### 具体的な描画の仕組み
 
-前述した通り`Widget`は所詮設定を持つ程度であるため、実は`Widget`そのものの再構築はたいしたコストにならない。\
-一番コストになるのは`Element`の再構築である。
+前述した通り`Widget`は所詮設定を持つ程度であるため、実は`Widget`そのものの再構築はたいしたコストになりません。\
+一番コストになるのは`Element`の再構築です。
 
-これは`Element`が実際に状態を管理していたり、`Widget`との関係も管理していたり、`RenderObject`との関係も管理していたりと、
-様々な処理を行っているためである。
+これは`Element`が実際に状態を管理していたり、`Widget`や`RenderObject`も管理していたりと、\
+様々な役割を持つオブジェクトであるためです。
 
-つまり、パフォーマンスの最適化のためには`Element`の再構築を最小限に抑えることが重要となる。
+つまり、パフォーマンスの最適化のためには<span style="text-decoration-line: underline; text-decoration-color: cyan;">`Element`の再構築を最小限に抑える</span>ことが重要となります。
 
-以下の更新時の挙動を念頭に置いて、次頁でパフォーマンス改善方法の意味を考える。
+以下は更新時の挙動です。これを念頭に置いて、次頁でパフォーマンス改善方法の意味を考えましょう。
 
 1. `Element`は`StateObject`に変化があるとdirtyとしてマークする
 2. マークされた箇所は次フレームで`Widget`の`build`を呼び出し、`Widget`ツリーを再構築する
@@ -2285,21 +2730,22 @@ graph
 
 ### 具体的な描画の仕組み: パフォーマンスについて考える
 
-Elementツリーの再構築を抑えるためには、以下のことを行う。
-- そもそもdirtyとしてマークされないようにする\
-  Consumerやクラス分割で`ref`の範囲を狭めることで、必要最低限のdirtyマークで済む\
-  selectを使って監視する値を絞り、dirtyマークされる条件を減らす
-- マークされたときに、比較対象を減らす\
-  constをつけるとWidgetの比較がそれより下のWidgetでは行われなくなる
-- 頻繁な`Widget`ツリーの再構築を減らす\
-  ifによる条件分岐でWidgetを構築すると、条件に当てはまるときと当てはまらないときで`Element`も再生成される\
-  これを防ぐために`Visibility`などを使用してツリー構造の変更を減らす\
-  非表示な状態がほとんどの場合は、`Visibility`を使用するよりも`if`を使用して、そもそも`Element`を構築しないほうが良いこともある
-- `Key`を適切に使用して、`Widget`の同一性を明確にする\
-  `Key`が違えば別の`Widget`として扱われて`Element`を再構築する必要が出てくるため、基本は`Key`をつけない
+Elementツリーの再構築を抑えるためには、以下のことを行います。
 
-`Element`の再構築を抑えるという視点で実装すると、他にも方法があるかもしれない。\
-より良いパフォーマンスのためには`Element`(と`RenderObject`)を意識してみると良い。
+- そもそもdirtyとしてマークされないようにする\
+  <span style="font-size: 0.8em;">Consumerやクラス分割で`ref`の範囲を狭めることで、必要最低限のdirtyマークで済む\
+  selectを使って監視する値を絞り、dirtyマークされる条件を減らす</span>
+- マークされたときに、比較対象を減らす\
+  <span style="font-size: 0.8em;">constをつけるとWidgetの比較がそれより下のWidgetでは行われなくなる</span>
+- 頻繁な`Widget`ツリーの再構築を減らす\
+  <span style="font-size: 0.8em;">ifによる条件分岐でWidgetを構築すると、条件に当てはまるときと当てはまらないときで`Element`も再生成される\
+  これを防ぐために`Visibility`などを使用してツリー構造の変更を減らす\
+  非表示な状態がほとんどの場合は、`Visibility`を使用するよりも`if`を使用して、そもそも`Element`を構築しないほうが良いこともある</span>
+- `Key`を適切に使用して、`Widget`の同一性を明確にする\
+  <span style="font-size: 0.8em;">`Key`が違えば別の`Widget`として扱われて`Element`を再構築する必要が出てくるため、基本は`Key`をつけない</span>
+
+`Element`の再構築を抑えるという視点で実装すると、他にも方法があるかもしれません。\
+より良いパフォーマンスのためには`Element`(と`RenderObject`)を意識してみると良いでしょう。
 
 ---
 layout: section
@@ -2311,8 +2757,8 @@ layout: section
 
 ### Dart言語のMacro
 
-Dart言語では、Macroが2025年初頭に正式に導入されると[予告](https://dart.dev/language/macros)されている。(執筆は2024/09)\
-マクロというのは、Dart言語においては以下のようになるとされている。
+Dart言語では、Macroが2025年初頭に正式に導入されると[予告](https://dart.dev/language/macros)されています。(執筆は2024/09)\
+マクロというのは、Dart言語においては以下のようになるとされています。
 
 <CodeCaption>アノテーションをつけることで、toJsonとfromJsonが使用できるようになる例</CodeCaption>
 
@@ -2329,9 +2775,9 @@ void main() {
 }
 ```
 
-Macroとはこのようにアノテーションによるコード自動生成機能である。
+Macroとはこのようにアノテーションによるコード展開（生成）機能です。
 
-これと同じ機能は現在`build_runner`というパッケージを使用し、事前にコマンドを実行してコードを生成することで実現している。
+これと同じ機能は現在`build_runner`というパッケージを使用し、事前にコマンドを実行してコードを生成することで実現しています。
 ```bash
 dart run build_runner build
 ```
@@ -2341,85 +2787,17 @@ dart run build_runner build
 
 ### Dart言語のMacro
 
-実はRiverpodにも`build_runner`による生成機能を[riverpod_generator](https://pub.dev/packages/riverpod_generator)によって使用できる。
+実はRiverpodにも`build_runner`による生成機能を[riverpod_generator](https://pub.dev/packages/riverpod_generator)によって使用できます。
 
-にも関わらずgeneratorバージョンを紹介しなかった理由は2つある。
+にも関わらずgeneratorバージョンを紹介しなかった理由は2つあります。
 
 - コード生成を使用するとほとんどが隠蔽されてしまい、具体的にどうなっているかが分かりづらくなるためチュートリアルに適していない
 - build_runnerは不評で、Macro版になってから使えば良いと考えているから
 
-2点目について、Riverpodは公式も[コード生成について](https://riverpod.dev/ja/docs/concepts/about_code_generation)以下のように言及している。
+2点目について、Riverpod公式も[コード生成について](https://riverpod.dev/ja/docs/concepts/about_code_generation)以下のように言及しています。
 
 > 現在、コード生成はがオプションなのはbuild_runnerが多くの人に好まれないためです。\
 > しかし、[Static Metaprogramming](https://github.com/dart-lang/language/issues/1482)が Dart で利用可能になると、 build_runnerはもはや問題ではありません。\
 > その時点で、コード生成を使用することが Riverpod で唯一の方法になるでしょう。
 
-[Dart言語のMacro](https://dart.dev/language/macros)は既に実験的に導入されており、気になる人は触れてみても良いだろう。
-
----
-layout: section
----
-
-## プロバイダーを使用したアーキテクチャ考察
-
----
-
-### MVVMではない
-
-<div grid="~ cols-2 gap-4">
-
-<div>
-
-プロバイダーで、とある画面に対応する状態をまとめて定義したクラスを管理することで、MVVMのようにすることは可能だが、\
-値の一部で参照されなくなった値があっても`autoDispose`でメモリの解放を行ってくれない。
-
-`ref.watch`によってメモリ解放が行われるのはプロバイダー単位であるため、プロバイダーの中の`state`の一部が参照されなくなったからといって、その一部が解放されるわけではない。
-
-つまり、メモリ効率を考えるのであれば、プロバイダーが画面にひとつという設計は間違っている。
-
-</div>
-
-<div style="display: flex; align-items: center; justify-content: center;">
-
-```mermaid {scale: 0.6}
-sequenceDiagram
-  participant A as Widget
-  participant B as Provider
-  participant C as Model
-  A->>B: ユーザー入力
-  B->>C: 処理を命令
-  C->>B: 処理結果取得
-  B->>A: データ表示
-```
-
-</div>
-</div>
-
----
-
-### Riverpodで管理している状態をFlutterHooksと連携する
-
-ですが、`TextEditingController`はそれ自体が文字列を保持しており、これとプロバイダーで管理している入力値を常に一致させたいという場合もあると思います。\
-その場合は以下のように記述することで、入力値をプロバイダーで管理している値と同期させることができます。
-
-```dart {all|2|3|4,5,12-14|6-11|15-18|all}
-Widget build(BuildContext context, WidgetRef ref) {
-  final controller = useTextEditingController(); // step1: コントローラーを作成
-  final currentState = ref.watch(sampleProvider); // step2: プロバイダーの値を監視
-  useEffect(
-    () {
-      WidgetsBinding.instance.addPostFrameCallback((timeStamp) { // step4: フレーム描画後にcontrollerの値をプロバイダーの値と一致させる
-        if (controller.text != currentState) {
-          controller.text = currentState;
-        }
-      });
-      return null;
-    },
-    [controller.text != currentState], // step3: プロバイダーの値が変わり、controller.textの値と異なる場合に実行
-  );
-  return TextField(
-    controller: controller,
-    onChanged: ref.read(sampleProvider.notifier).updateState, // step7: 入力値に従ってプロバイダーの値を更新するTextFieldを定義
-  );
-}
-```
+[Dart言語のMacro](https://dart.dev/language/macros)は既に実験的に導入されており、気になる人は触れてみても良いと思います。
