@@ -1,1 +1,0 @@
-import{o,b as t,f as s}from"./modules/vue-B94B7V6J.js";import{u as n}from"./slidev/context-DV-y_y6P.js";const r={style:{"font-size":"0.8em",padding:"0",margin:"0"}},p={__name:"CodeCaption",setup(a){return n(),(e,i)=>(o(),t("div",r,[s(e.$slots,"default")]))}};export{p as _};
