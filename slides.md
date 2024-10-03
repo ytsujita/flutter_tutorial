@@ -1167,7 +1167,71 @@ class SampleWidget extends ConsumerWidget with SampleState {
 }
 ```
 
+---
 
+### プロバイダー全般の注意点: 定義場所
+
+もし、特定の`Widget`でのみ使用する状態が必要であれば、後述する`Hooks`を使用してください。\
+「特定の`Widget`でのみ使用するが、どうしてもプロバイダーで管理したい」といった場合は`ProviderScope`を使用してください。
+
+<div grid="~ cols-2 gap-4">
+
+<div>
+
+```dart
+final sampleProvider = Provider<int>((ref) => 100);
+
+// widget側
+@override
+Widget build(BuildContext context, WidgetRef ref) {
+  // ここで使えるrefは、ProviderScope外のものなので注意!!!
+  print(ref.watch(sampleProvider).toString()); // 100
+  return ProviderScope(
+    overrides: [
+      // Providerを上書き
+      sampleProvider.overrideWith((ref) => 0),
+    ],
+    child: Consumer(
+      builder: (context, ref, child) {
+        // ここで使えるrefは、ProviderScope内のもの。0が取れる
+        return Text(ref.watch(sampleProvider).toString());
+      },
+    ),
+  );
+}
+```
+
+
+</div>
+
+<div>
+
+```dart
+// ProviderScopeで上書きしないとUnimplementedErrorを投げる
+// これによって実質的にグローバルに定義されないことになる
+final sampleNotifierProvider = NotifierProvider<SampleNotifier,
+  int>(() => throw UnimplementedError());
+
+// widget側
+return ProviderScope(
+  overrides: [
+    // NotifierProviderを上書き
+    sampleNotifierProvider.overrideWith(SampleNotifier.new),
+  ],
+  child: Consumer(
+    builder: (context, ref, child) {
+      return Text(
+        ref.watch(sampleNotifierProvider).toString(),
+      );
+    },
+  ),
+);
+```
+
+
+</div>
+
+</div>
 
 ---
 
