@@ -1094,7 +1094,7 @@ return switch (ref.watch(sampleProvider)) {
 
 ここまで紹介してきたプロバイダーについて、いくつか注意点があります。\
 まず、プロバイダーを<span style="text-decoration-line: underline; text-decoration-color: red;">必ずグローバルに定義する</span>ようにしてください。\
-[Riverpodの公式ドキュメント](https://riverpod.dev/ja/docs/essentials/do_dont)でも指摘されているように、ローカルに定義するとメモリリークなどの原因にになります。
+[Riverpodの公式ドキュメント](https://riverpod.dev/ja/docs/essentials/do_dont)でも指摘されているように、ローカルに定義するとメモリリークなどの原因になります。
 
 <br/>
 
@@ -2241,7 +2241,7 @@ Navigator.pop(context);
 
 ### Navigator 2.0
 
-しかし、改良版であるRouterは、そのまま使うには複雑すぎてNavigatorのように簡単には扱えないです。😭
+しかし、改良版であるRouterは、そのまま使うには複雑すぎてNavigatorのように簡単に扱えないです。😭
 
 <div style="display: flex;">
 
@@ -2796,7 +2796,7 @@ dart run build_runner build
 
 2点目について、Riverpod公式も[コード生成について](https://riverpod.dev/ja/docs/concepts/about_code_generation)以下のように言及しています。
 
-> 現在、コード生成はがオプションなのはbuild_runnerが多くの人に好まれないためです。\
+> 現在、コード生成がオプションなのはbuild_runnerが多くの人に好まれないためです。\
 > しかし、[Static Metaprogramming](https://github.com/dart-lang/language/issues/1482)が Dart で利用可能になると、 build_runnerはもはや問題ではありません。\
 > その時点で、コード生成を使用することが Riverpod で唯一の方法になるでしょう。
 
